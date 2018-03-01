@@ -7,8 +7,8 @@
 // Массив для отправки в USART
 char buf[100];
 // Массивы для хранения параметров точек
-u32 setting_time[30] = {0};
-u32 setting_temp[30] = {0};
+u32 setting_time[100] = {0};
+u32 setting_temp[100] = {0};
 // Переменная хранения количества точек
 u8 cycles = 0;
 // Переменная хранения времени
@@ -16,37 +16,16 @@ u8 timer = 0;
 
 // Счетчик принятых байт по USART
 u8 receivedDataCounter = 0;
-// Будем принимать
-u8 receivedData[16];
-u8 bytesToReceive =16;
+// Массив для приема по USART
+char receivedData[100] = {0};
 
 int main(void) {
 
 	RCC_init();
 	USART_init();
 	ADC1_init();
-	// RTC_Init();
+	RTC_Init();
 	GPIO_init();
-
-	/* Чтение параметров из flash */
-	// Читаем количество точек
-	cycles = FLASH_Read(page31);
-	// Читаем параметры точек
-	for(u8 i = 0; i < cycles; i++) {
-
-		setting_time[i] = FLASH_Read(i*4 + (page31) + 4);
-		setting_temp[i] = FLASH_Read(i*4 + (page31) + 4 + cycles * 4);
-	}
-
-	// Печатаем параметры точек
-	USART1_Send_String("Params in flash:\r\n");
-	for(u8 i = 0; i < cycles; i++) {
-
-		sprintf(buf, "Temp %d: %ld C, Time %d: %ld min\r\n", i,
-				FLASH_Read(i*4 + (page31) + 4), i,
-				FLASH_Read(i*4 + (page31) + 4 + cycles * 4));
-		USART1_Send_String(buf);
-	}
 
 	// Запускаем работу
 	StartWork();
@@ -67,8 +46,13 @@ void USART1_IRQHandler(void) {
 		// Приняли, увеличиваем значение счетчика
 		receivedDataCounter ++;
 	}
-	// Записываем новые параметры точек во флеш
-	// WriteNewParams();
+
+	// Если прилетел символ новой строки - посылка получена - можно читать
+	if(USART1->DR == '\n') {
+
+		// Записываем новые параметры точек во флеш
+		WriteNewParams(receivedData);
+	}
 }
 
 // Обработчик прерываний от RTC
@@ -79,17 +63,8 @@ void RTC_IRQHandler(void) {
 
 		// Сбрасываем флаг
 		RTC->CRL &= ~RTC_CRL_SECF;
-
 		// Увеличиваем переменную времени
 		timer++;
-
-		/*
-		if (timer == 60) {
-
-			USART1_Send_String("\r\n1");
-			timer = 0;
-		}
-		 */
 	}
 }
 
@@ -210,6 +185,17 @@ void RCC_init(void) {
 
 void StartWork(void) {
 
+	// Читаем количество точек
+	cycles = FLASH_Read(page32);
+
+	// Читаем параметры точек, заполняем массивы параметров
+	for(u8 i = 0; i < cycles; i++) {
+
+		setting_time[i] = FLASH_Read(i*4 + (page31) + 4);
+		setting_temp[i] = FLASH_Read(i*4 + (page32) + 4);
+	}
+
+	// Запускаем работу
 	for(u8 i = 0; i < cycles; i++) {
 
 		/* ! PRINT DATA ON DISPLAY 1602
@@ -217,9 +203,8 @@ void StartWork(void) {
 		 *
 		 */
 
-
 		// Запускаем работу первой точки до тех пор, пока не кончится время
-		while((timer*60) < setting_time[i]) {
+		while(timer < (setting_time[i]*60)) {
 
 			// Здесь поддерживаем заданную температуру
 			if(PT100_GetTemp() < setting_temp[i]) {
@@ -254,17 +239,108 @@ float map(float x, float in_min, float in_max, float out_min, float out_max) {
 
 void WriteNewParams(const char *str) {
 
+	// Возможно стоит на время записи данных запретить прерывания ?
+
+	/* Парсим принятую посылку:
+	 * Читаем нулевой байт. Если "a" - посылка для нас - читаем следующий байт;
+	 * Читаем первый байт - параметр. Если "1" - новые значения температур точек, если "2" - новые значения времени точек;
+	 * Читаем второй и третий байт - количество точек. От этого числа определяем, сколько байт читать дальше;
+	 * Каждый параметр (температура или время) занимает 3 байта)).
+	 */
+
+	char ptr[2] = {0};
+	char val[3] = {0};
+
 	// Записываем новые параметры во флеш
+	FLASH_unlock();
+
+	// Нулевой байт, если "а" - посылка для нас, читаем дальше
+	if (receivedData[0] == 'a') {
+
+		// Первый байт, определяем тип принятых данных
+		switch(receivedData[1]) {
+
+		// Если "1" - новые значения температур
+		case '1':
+			// Второй и третий байт - количество точек
+			memcpy(ptr, &receivedData[2], 2);
+			cycles = atoi(ptr);
+			FLASH_Erase_Page(page31);
+			FLASH_Write(page31, (u32)cycles);
+
+			for(u8 i = 0; i < cycles; i++) {
+
+				// Читаем байты через 3 (значение температуры занимает 3 байта, лол)
+				memcpy(val, &receivedData[4 + i*3], 3);
+				setting_temp[i] = atoi(val);
+
+				// Запись параметра температуры во флеш после записи о номере точек (adress page31 + 4byte)
+				FLASH_Write(i*4 + (page31 + 4), (u32)setting_temp[i]);
+			}
+
+			break;
+
+
+		// Если "2" - новые значения времени точек
+		case '2':
+			// Второй и третий байт - количество точек
+			memcpy(ptr, &receivedData[2], 2);
+			cycles = atoi(ptr);
+			FLASH_Erase_Page(page32);
+			FLASH_Write(page32, (u32)cycles);
+
+			for(u8 i = 0; i < cycles; i++) {
+
+				memcpy(val, &receivedData[4 + i*3], 3);
+				setting_time[i] = atoi(val);
+
+				// Запись параметра времени во флеш
+				FLASH_Write(i*4 + (page32 + 4), (u32)setting_time[i]);
+			}
+
+			break;
+
+		default:
+			Error_Handler();
+		}
+
+	} else Error_Handler();;
+
+
+	for(u8 i = 0; i < cycles; i++) {
+		receivedData[i] = 0;
+	}
+	receivedDataCounter  = 0;
+
+	// Печатаем параметры точек (для отладки)
+	USART1_Send_String("Params in flash:\r\n\r\n");
+	sprintf(buf, "Number of dots: %ld\r\n\r\n", (u32)cycles);
+	USART1_Send_String(buf);
+
 	for(u8 i = 0; i < cycles; i++) {
 
-		// setting_temp[i] = uart_data;
-
-		// Запись параметра температуры во флеш после записи о номере точек (adress page31 + 4byte)
-		FLASH_Write(i*4 + (page31 + 4), (u32)setting_temp[i]);
-
-		// setting_time[i] = uart_data;
-
-		// Запись параметра времени во флеш после последней записи параметра температуры
-		FLASH_Write(i*4 + (page31 + 4) + (cycles * 4), (u32)setting_time[i]);
+		sprintf(buf, "Temp %d: %ld C,\tTime %d: %ld min\r\n", i,
+				FLASH_Read(i*4 + (page31) + 4), i,
+				FLASH_Read(i*4 + (page32) + 4));
+		USART1_Send_String(buf);
 	}
+
+	// Обнуляем счетчик количества принятых байт (очистка для следующей посылки)
+	// receivedDataCounter  = 0;
+
+	/* Возможно стоит добавить какой-то флаг, чтобы работа приостановилась, если запущена */
 }
+
+void Error_Handler(void) {
+
+	// Аварийно выключаем нагреватель
+	GPIOA->ODR &= ~(1<<HEATER_pin);
+
+	for(;;) {
+		// Мигаем, сигнализация об ошибке
+		GPIOC->ODR ^= (1<<ERROR_pin);
+		for(u32 i = 0; i < 200000; i++);
+	}
+
+}
+

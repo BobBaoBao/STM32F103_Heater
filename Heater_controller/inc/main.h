@@ -14,7 +14,9 @@
 #include "stdio.h"
 
 #define page31 FLASH_BASE + (31 * 1024)
-#define HEATER_pin 13
+#define page32 FLASH_BASE + (32 * 1024)
+#define HEATER_pin 1
+#define ERROR_pin 13
 
 // Прототипы функций
 void ADC1_init(void);
@@ -24,5 +26,6 @@ float map(float x, float in_min, float in_max, float out_min, float out_max);
 u32 PT100_GetTemp(void);
 void StartWork(void);
 void WriteNewParams(const char *str);
+void Error_Handler(void);
 
 #endif /* MAIN_H_ */
