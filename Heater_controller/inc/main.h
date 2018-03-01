@@ -12,6 +12,7 @@
 #include "string.h"
 #include "stdlib.h"
 #include "stdio.h"
+#include <stdbool.h>
 
 #define page31 FLASH_BASE + (31 * 1024)
 #define page32 FLASH_BASE + (32 * 1024)

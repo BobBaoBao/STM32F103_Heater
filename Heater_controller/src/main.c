@@ -19,6 +19,9 @@ u8 receivedDataCounter = 0;
 // Массив для приема по USART
 char receivedData[100] = {0};
 
+// Флаг отображающий прием новых данных
+bool newParams = false;
+
 int main(void) {
 
 	RCC_init();
@@ -174,13 +177,12 @@ void RCC_init(void) {
 	 	от HSI! */
 	}
 
-
-
-	// Set up RCC on USART1 & GPIOA & GPIOC, set up alt func., set up RCC on ADC1
+	// Включаем RCC для USART 1, GPIOA GPIOC, альтернативные функции, АЦП и CRC
 	RCC->APB2ENR|= RCC_APB2ENR_IOPAEN | RCC_APB2ENR_IOPCEN | RCC_APB2ENR_AFIOEN;
 	AFIO->MAPR |= AFIO_MAPR_SWJ_CFG_JTAGDISABLE;
-	// Set up RCC on TIM2
-	RCC->APB1ENR |= RCC_APB1ENR_TIM2EN;
+	RCC->AHBENR |= RCC_AHBENR_CRCEN;
+
+
 }
 
 void StartWork(void) {
@@ -195,6 +197,9 @@ void StartWork(void) {
 		setting_temp[i] = FLASH_Read(i*4 + (page32) + 4);
 	}
 
+	// Сбрасываем флаг приема новых данных
+	newParams = false;
+
 	// Запускаем работу
 	for(u8 i = 0; i < cycles; i++) {
 
@@ -206,24 +211,47 @@ void StartWork(void) {
 		// Запускаем работу первой точки до тех пор, пока не кончится время
 		while(timer < (setting_time[i]*60)) {
 
+			// Если прилетели новые данные - выходим из цикла, читаем новые параметры - запускаем цикл
+			if(newParams) break;
+
 			// Здесь поддерживаем заданную температуру
 			if(PT100_GetTemp() < setting_temp[i]) {
 
-				GPIOC->ODR |= (1<<HEATER_pin);
+				//GPIOC->ODR |= (1<<HEATER_pin);
+				GPIOC->ODR |= (1<<ERROR_pin);
 			}
 			else {
 
-				GPIOC->ODR &= ~(1<HEATER_pin);
+				//GPIOC->ODR &= ~(1<HEATER_pin);
+				GPIOC->ODR &= ~(1<<ERROR_pin);
 			}
+
+			// Печатаем "температру" для отладки
+			sprintf(buf, "Температура: %ld,\tУставка: %ld,\tТекущее время: %d,\tУставка: %ld\r\n", PT100_GetTemp(),
+					setting_temp[0], timer, setting_time[0]*60);
+
+			USART1_Send_String(buf);
+			// Тупая задержка
+			for(u32 i = 0; i <2000000; i++);
 		}
 
 		// Сбрасываем переменную времени и запускаем следующую точку
 		timer = 0;
+
 	}
 
-	// После окончания всех режимов отключаем нагреватель и уходим в бесконечный цикл
-	GPIOC->ODR &= ~(1 << HEATER_pin);
-	for(;;);
+	if (newParams) {
+
+		// Если пришли новые параметры рекурсивно вызываем сами себя и запускаем работу с новыми параметрами
+		StartWork();
+	}
+	else {
+		// Если мы попали сюда, значит режим окончил свою работу. Выключаем нагреватель, уходим в бесконечность
+		//GPIOC->ODR &= ~(1<<HEATER_pin);
+		GPIOC->ODR &= ~(1<<ERROR_pin);
+		USART1_Send_String("\r\n Работа окончена!\r\n");
+		for(;;);
+	}
 }
 
 u32 PT100_GetTemp(void) {
@@ -307,16 +335,17 @@ void WriteNewParams(const char *str) {
 	} else Error_Handler();;
 
 
-	for(u8 i = 0; i < cycles; i++) {
+	// Обнуляем счетчик количества принятых байт и массив принятых байт
+	for(u8 i = 0; i <= 100; i++) {
 		receivedData[i] = 0;
 	}
 	receivedDataCounter  = 0;
+
 
 	// Печатаем параметры точек (для отладки)
 	USART1_Send_String("Params in flash:\r\n\r\n");
 	sprintf(buf, "Number of dots: %ld\r\n\r\n", (u32)cycles);
 	USART1_Send_String(buf);
-
 	for(u8 i = 0; i < cycles; i++) {
 
 		sprintf(buf, "Temp %d: %ld C,\tTime %d: %ld min\r\n", i,
@@ -325,9 +354,8 @@ void WriteNewParams(const char *str) {
 		USART1_Send_String(buf);
 	}
 
-	// Обнуляем счетчик количества принятых байт (очистка для следующей посылки)
-	// receivedDataCounter  = 0;
 
+	newParams = true;
 	/* Возможно стоит добавить какой-то флаг, чтобы работа приостановилась, если запущена */
 }
 
