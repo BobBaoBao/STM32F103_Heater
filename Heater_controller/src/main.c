@@ -193,8 +193,8 @@ void StartWork(void) {
 	// Читаем параметры точек, заполняем массивы параметров
 	for(u8 i = 0; i < cycles; i++) {
 
-		setting_time[i] = FLASH_Read(i*4 + (page31) + 4);
-		setting_temp[i] = FLASH_Read(i*4 + (page32) + 4);
+		setting_temp[i] = FLASH_Read(i*4 + (page31) + 4);
+		setting_time[i] = FLASH_Read(i*4 + (page32) + 4);
 	}
 
 	// Сбрасываем флаг приема новых данных
