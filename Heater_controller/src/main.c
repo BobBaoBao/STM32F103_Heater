@@ -3,6 +3,7 @@
 #include "flash.h"
 #include "usart.h"
 #include "RTC.h"
+#include "lcd.h"
 
 // Массив для отправки в USART
 char buf[100];
@@ -30,6 +31,13 @@ int main(void) {
 	RTC_Init();
 	GPIO_init();
 
+    InitializeLCD();
+    ClearLCDScreen();
+    SetCursor(0,2);
+    PrintStr("test");
+    SetCursor(1,4);
+    PrintStr("test");
+
 	// Запускаем работу
 	StartWork();
 }
@@ -52,6 +60,8 @@ void USART1_IRQHandler(void) {
 
 	// Если прилетел символ новой строки - посылка получена - можно читать
 	if(USART1->DR == '\n') {
+
+		// Проверяем CRC - если все ок идем дальше
 
 		// Записываем новые параметры точек во флеш
 		WriteNewParams(receivedData);
@@ -203,10 +213,15 @@ void StartWork(void) {
 	// Запускаем работу
 	for(u8 i = 0; i < cycles; i++) {
 
-		/* ! PRINT DATA ON DISPLAY 1602
-		 *
-		 *
-		 */
+		// Выводим информацию о текущем режиме на дисплей
+		ClearLCDScreen();
+		SetCursor(0, 2);
+		sprintf(buf, "SetTemp: %ld", setting_temp[i]);
+		PrintStr(buf);
+		SetCursor(1,4);
+		sprintf(buf, "SetTime: %ld", setting_time[i]);
+		PrintStr("");
+
 
 		// Запускаем работу первой точки до тех пор, пока не кончится время
 		while(timer < (setting_time[i]*60)) {
@@ -227,12 +242,12 @@ void StartWork(void) {
 			}
 
 			// Печатаем "температру" для отладки
-			sprintf(buf, "Температура: %ld,\tУставка: %ld,\tТекущее время: %d,\tУставка: %ld\r\n", PT100_GetTemp(),
-					setting_temp[0], timer, setting_time[0]*60);
+			sprintf(buf, "Точка№ %d, Температура: %ld, Уставка: %ld| Текущее время: %d, Уставка: %ld\r\n", i, PT100_GetTemp(),
+					setting_temp[i], timer, setting_time[i]*60);
 
 			USART1_Send_String(buf);
 			// Тупая задержка
-			for(u32 i = 0; i <2000000; i++);
+			for(u32 i = 0; i <4000000; i++);
 		}
 
 		// Сбрасываем переменную времени и запускаем следующую точку
