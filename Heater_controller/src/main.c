@@ -83,13 +83,12 @@ void RTC_IRQHandler(void) {
 
 void ADC1_init(void) {
 
-	// Set up RCC for ADC1
+	// Включаем тактирование АЦП1
 	RCC->APB2ENR |= RCC_APB2ENR_ADC1EN;
-	// Set up ADC on PA0 Pin:  CNF0, CNF1, MODE0, MODE1 == 0;
+	// Настраиваем вывод для АЦП
 	GPIOA->CRL &= ~(GPIO_CRL_MODE0_0 | GPIO_CRL_MODE0_1 | GPIO_CRL_CNF0_0 | GPIO_CRL_CNF0_1);
 
 	ADC1->SMPR2 |= ADC_SMPR2_SMP0;
-	// Set up Continous mode ADC
 	ADC1->CR2 |= ADC_CR2_CONT | ADC_CR2_ADON | ADC_CR2_EXTTRIG | ADC_CR2_EXTSEL | ADC_CR2_JEXTSEL;
 	ADC1->CR2 |= ADC_CR2_SWSTART;
 }
