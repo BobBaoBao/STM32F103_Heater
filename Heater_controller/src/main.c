@@ -31,12 +31,12 @@ int main(void) {
 	RTC_Init();
 	GPIO_init();
 
-    InitializeLCD();
-    ClearLCDScreen();
-    SetCursor(0,2);
-    PrintStr("test");
-    SetCursor(1,4);
-    PrintStr("test");
+	InitializeLCD();
+	ClearLCDScreen();
+	SetCursor(0,2);
+	PrintStr("test");
+	SetCursor(1,4);
+	PrintStr("test");
 
 	// Запускаем работу
 	StartWork();
@@ -324,7 +324,7 @@ void WriteNewParams(const char *str) {
 			break;
 
 
-		// Если "2" - новые значения времени точек
+			// Если "2" - новые значения времени точек
 		case '2':
 			// Второй и третий байт - количество точек
 			memcpy(ptr, &receivedData[2], 2);
